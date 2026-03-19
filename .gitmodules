@@ -1,6 +1,6 @@
 [submodule "external/ffmpeg"]
 	path = external/ffmpeg
-	url = https://github.com/aveq-research/ffmpeg.git
+	url = https://github.com/plebreton/ffmpeg.git
 [submodule "external/libaom"]
 	path = external/libaom
-	url = https://github.com/aveq-research/libaom.git
+	url = https://github.com/plebreton/libaom.git

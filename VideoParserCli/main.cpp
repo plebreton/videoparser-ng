@@ -119,6 +119,9 @@ int main(int argc, char *argv[]) {
   // clang-format off
   options.add_options()
       ("n,num-frames", "Parse only the first n frames", cxxopts::value<int>()->default_value("-1"))
+      ("export-qp", "Export QP values to a binary", cxxopts::value<std::string>())
+      ("export-mv", "Write motion-vector matrix to binary file", cxxopts::value<std::string>())
+      ("export-bits", "Write a bit usage matrix to binary file", cxxopts::value<std::string>())
       ("v,verbose", "Show verbose output")
       ("h,help", "Show this help message")
       ("version", "Show version information")
@@ -169,8 +172,25 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
+  std::optional<std::string> qp_export_path;
+  if (result.count("export-qp")) {
+    qp_export_path = result["export-qp"].as<std::string>();
+  }
+
+  std::optional<std::string> mv_export_path;
+  if (result.count("export-mv")) {
+    mv_export_path = result["export-mv"].as<std::string>();
+  }
+
+  std::optional<std::string> bits_export_path;
+  if (result.count("export-bits")) {
+    bits_export_path = result["export-bits"].as<std::string>();
+  }
+
   try {
-    videoparser::VideoParser parser(filename.c_str());
+    videoparser::VideoParser parser(filename.c_str(), qp_export_path,
+                                    mv_export_path, bits_export_path);
+
     videoparser::SequenceInfo sequence_info;
     videoparser::FrameInfo frame_info;
 

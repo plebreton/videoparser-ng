@@ -19,7 +19,10 @@ void set_verbose(bool verbose) {
   }
 }
 
-VideoParser::VideoParser(const char *filename) {
+VideoParser::VideoParser(const char *filename,
+                         const std::optional<std::string> &qp_export_path,
+                         const std::optional<std::string> &mv_export_path,
+                         const std::optional<std::string> &bits_export_path) {
   // Initialize FFmpeg networking
   avformat_network_init();
 
@@ -117,6 +120,17 @@ VideoParser::VideoParser(const char *filename) {
   // H.264
   // // https://ffmpeg.org/doxygen/trunk/extract_mvs_8c-example.html
   // av_dict_set(&opts, "flags2", "+export_mvs", 0);
+  if (qp_export_path.has_value()) {
+    av_dict_set(&opts, "export_qp_matrix", qp_export_path->c_str(), 0);
+  }
+
+  if (mv_export_path.has_value()) {
+    av_dict_set(&opts, "export_mv_matrix", mv_export_path->c_str(), 0);
+  }
+
+  if (bits_export_path.has_value()) {
+    av_dict_set(&opts, "export_ctu_bits_matrix", bits_export_path->c_str(), 0);
+  }
 
   if (avcodec_open2(codec_context, codec, &opts) < 0) {
     throw std::runtime_error("Error opening codec");

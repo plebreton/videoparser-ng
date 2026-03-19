@@ -3,6 +3,8 @@ project(VideoParser)
 # Option to skip ffmpeg build (useful for Docker multi-stage builds where ffmpeg is pre-built)
 option(SKIP_FFMPEG_BUILD "Skip automatic ffmpeg build" OFF)
 
+find_package(Threads REQUIRED)
+
 # Vendored libaom paths
 set(LIBAOM_SRC_DIR "${CMAKE_SOURCE_DIR}/external/libaom")
 set(LIBAOM_BUILD_DIR "${LIBAOM_SRC_DIR}/aom_build")
@@ -25,6 +27,7 @@ target_link_libraries(videoparser PUBLIC ${CMAKE_SOURCE_DIR}/external/ffmpeg/lib
 target_link_libraries(videoparser PUBLIC ${CMAKE_SOURCE_DIR}/external/ffmpeg/libavutil/libavutil.a)
 target_link_libraries(videoparser PUBLIC ${LIBAOM_LIBRARY})
 target_link_libraries(videoparser PUBLIC bz2 z)
+target_link_libraries(videoparser PRIVATE Threads::Threads)
 
 # Build FFmpeg (which also builds libaom) if it doesn't exist, or if any of its source files have changed
 if(NOT SKIP_FFMPEG_BUILD)

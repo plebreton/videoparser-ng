@@ -145,7 +145,11 @@ public:
    * @throws std::runtime_error If the file cannot be opened or no video stream
    * is found
    */
-  VideoParser(const char *filename);
+  VideoParser(
+      const char *filename,
+      const std::optional<std::string> &qp_export_path = std::nullopt,
+      const std::optional<std::string> &mv_export_path = std::nullopt,
+      const std::optional<std::string> &bits_export_path = std::nullopt);
 
   /**
    * @brief Get information about the video sequence

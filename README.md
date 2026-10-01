@@ -1,6 +1,6 @@
 # VideoParser – The Next Generation
 
-A command-line and API-based video bitstream parser, using ffmpeg and other third party libraries.
+A video bitstream parser with a command-line tool and a C/C++ API, based on FFmpeg.
 
 - [Overview](#overview)
 - [History and Goals](#history-and-goals)
@@ -13,6 +13,7 @@ A command-line and API-based video bitstream parser, using ffmpeg and other thir
 - [Available Metrics](#available-metrics)
   - [Sequence Info](#sequence-info)
   - [Frame Info](#frame-info)
+  - [Summary](#summary)
 - [API Integration](#api-integration)
 - [Building Manually](#building-manually)
   - [Requirements](#requirements)
@@ -20,6 +21,7 @@ A command-line and API-based video bitstream parser, using ffmpeg and other thir
   - [Installation under Ubuntu](#installation-under-ubuntu)
   - [Building](#building)
   - [Rebuilding ffmpeg](#rebuilding-ffmpeg)
+  - [Shared ffmpeg](#shared-ffmpeg)
   - [Building with Docker](#building-with-docker)
 - [Developer Guide](#developer-guide)
 - [Acknowledgements](#acknowledgements)
@@ -35,9 +37,9 @@ This project supplies two main components:
 
 The project is aimed at providing input for bitstream-based video (quality) assessment.
 
-Internally, ffmpeg is used, and linked into the project. Currently, the project is built with FFmpeg 8.1-dev (1407 commits from latest release).
+Internally, ffmpeg is used, and linked into the project. Currently, the project is built from FFmpeg master at `1ef0d9d701` (`n9.1-dev-1329`).
 
-<!-- git -C external/ffmpeg describe --tags HEAD~3 | sed 's/n\(.*\)-\([0-9]*\)-.*/FFmpeg \1 (\2 commits from latest release)/' -->
+<!-- git -C external/ffmpeg describe --tags upstream/master -->
 
 We strive to keep the project up to date with the latest ffmpeg version.
 The actual ffmpeg changes are published in [this `ffmpeg` fork](https://github.com/aveq-research/ffmpeg/tree/videoparser) in the `videoparser` branch.
@@ -129,7 +131,13 @@ Add the option `-h` for detailed usage.
 
 ## Output
 
-The tool will print a set of line-delimited JSON records to STDOUT, either for per-sequence statistics (`sequence_info`), or per-frame statistics (`frame_info`). These are denoted with the `type` field.
+The tool writes one JSON record per line to stdout. The `type` field tells the kind of record:
+
+- `sequence_info` (first): statistics of the whole sequence
+- `frame_info`: statistics of one frame
+- `summary` (last): counts over all parsed frames (since version 0.8.0)
+
+New record types may be added, so programs that read the output should skip types they do not know.
 
 Here is an example, but formatted with `jq` to make it more readable:
 
@@ -157,6 +165,8 @@ This would print:
 {
   "coefs_bit_count": 1328,
   "current_poc": 0,
+  "decode_error": false,
+  "discontinuity": false,
   "dts": 0.0,
   "frame_idx": 0,
   "frame_type": 1,
@@ -184,21 +194,30 @@ This would print:
   "size": 87,
   "type": "frame_info"
 }
+{
+  "corrupt_packets": 0,
+  "decode_errors": 0,
+  "discontinuities": 0,
+  "frame_count": 1,
+  "type": "summary"
+}
 ```
 
 The tool will also print various logs to STDERR which you can redirect to a file if you want to save them, or ignore with `2>/dev/null`.
 
 ## Available Metrics
 
-The following metadata/metrics are available:
-
 ### Sequence Info
+
+Supported containers are MP4/MOV, Matroska/WebM, AVI, MPEG-TS, MPEG-PS, and raw H.264/HEVC/MPEG-2 bitstreams. If the container does not signal the bitrate or frame count (for example, MPEG-TS and MPEG-PS), the parser reads all video packets once before parsing, without decoding them, to estimate both values.
+
+The packet scan also finds timestamp discontinuities: a timestamp that is more than 5 seconds later or more than 1 second earlier than the end of the previous packet. The gaps between the parts do not count, and the duration is then the time covered by the packets instead of the container duration. For example, a 12-second recording whose timestamps jump forward by 100 seconds has a duration of 12 seconds, and the bitrate is computed over 12 seconds.
 
 | Metric                | Description                       | Unit    |
 | --------------------- | --------------------------------- | ------- |
 | `video_duration`      | Duration of the video             | seconds |
-| `video_codec`         | Codec name (h264, hevc, vp9, av1) | —       |
-| `video_bitrate`       | Average bitrate                   | kbps    |
+| `video_codec`         | Codec name (h264, hevc, vp9, av1, mpeg2) | —       |
+| `video_bitrate`       | Average video bitrate             | kbps    |
 | `video_framerate`     | Frame rate                        | fps     |
 | `video_width`         | Frame width                       | pixels  |
 | `video_height`        | Frame height                      | pixels  |
@@ -218,6 +237,8 @@ The following metadata/metrics are available:
 | `size`              | Frame size                                | bytes    |
 | `frame_type`        | Frame type (1=I, 2=P, 3=B)                | enum     |
 | `is_idr`            | Whether frame is an IDR/keyframe          | boolean  |
+| `decode_error`      | Whether the decoder reported errors (e.g. concealment) | boolean  |
+| `discontinuity`     | Whether the timestamp jumps before this frame | boolean  |
 | `qp_avg`            | Average QP of all coding units            | QP index |
 | `qp_stdev`          | Standard deviation of QP values           | QP index |
 | `qp_min`            | Minimum QP value in frame                 | QP index |
@@ -240,19 +261,40 @@ The following metadata/metrics are available:
 | `mb_mv_count`       | Number of blocks with motion vectors      | count    |
 | `mv_coded_count`    | Number of explicitly coded MVs            | count    |
 
+`decode_error` is true if FFmpeg set error flags on the decoded frame (for example, for concealed macroblocks after packet loss) or marked it as corrupt. `discontinuity` is true if the timestamp of the frame is more than 5 seconds later or more than 1 second earlier than the end of the previous frame (its timestamp plus its duration).
+
+### Summary
+
+The `summary` record comes after the last frame. Its counts cover the printed frames (with `-n`, only the first frames).
+
+| Metric            | Description                                                                 | Unit  |
+| ----------------- | --------------------------------------------------------------------------- | ----- |
+| `frame_count`     | Number of parsed frames                                                     | count |
+| `decode_errors`   | Frames with `decode_error`, plus packets and frames the decoder rejected    | count |
+| `corrupt_packets` | Video packets the demuxer marked as corrupt (e.g. MPEG-TS continuity errors) | count |
+| `discontinuities` | Frames with `discontinuity`                                                 | count |
+
+Frames and packets that the decoder rejects are skipped, and parsing continues. A file whose video format cannot be determined (for example, an MPEG-TS stream whose PMT declares the wrong codec) is an error.
+
+QP and motion vector values are in codec-native units:
+
+- QP: H.264/HEVC 0–51, VP9/AV1 0–255, MPEG-2 1–112 (the `quantiser_scale` value, not the 5-bit code)
+- Motion vectors: quarter-pel for H.264/HEVC, eighth-pel for VP9/AV1, half-pel for MPEG-2
+
 A detailed description of all available metrics is available in [METRICS.md](METRICS.md).
 
 For the implementation notes (i.e., what was modified to extract the metrics), see [DEVELOPERS.md](DEVELOPERS.md).
 
 ## API Integration
 
-The project provides a C++ API in the `libvideoparser` library. See the `VideoParserCli` folder for an example of how to use the API.
+`libvideoparser` has two APIs:
+
+- The C++ API (`VideoParser.h`). The CLI in `VideoParserCli` is an example of how to use it.
+- The C API (`videoparser_c.h`), for use from other languages. It can also read from your own callbacks instead of a file, and it returns the decoded pictures.
 
 API documentation is available in the `docs` folder. You can [view it at this location](https://raw.githack.com/aveq-research/videoparser-ng/master/docs/html/index.html).
 
 ## Building Manually
-
-Follow the instructions below to build the project from source.
 
 ### Requirements
 
@@ -312,13 +354,27 @@ sudo apt install \
 
 #### Legacy Mode
 
-To enable "legacy" computation mode (replicating known bugs from the original `bitstream_mode3_videoparser` for compatibility testing), rebuild with:
+To build the "legacy" computation mode (replicating known bugs from the original `bitstream_mode3_videoparser` for compatibility testing) next to the standard build, run:
+
+```bash
+util/build-cmake.sh --legacy
+```
+
+This builds ffmpeg with `-DVP_MV_POC_NORMALIZATION=1` in a copy of its source in `build/ffmpeg-legacy/src`, and the library and CLI in `build/legacy`. The CLI is `build/legacy/VideoParserCli/video-parser`. It also installs an SDK with the same layout as the release SDK archives to `build/legacy/sdk` (use `--prefix <dir>` for another location). The standard build in `external/ffmpeg` and `build` is not changed.
+
+To build other programs against the legacy library, use the SDK, since it contains the matching ffmpeg libraries. For example, with CMake:
+
+```bash
+cmake -S . -B build -DVIDEOPARSER_SDK=/path/to/videoparser-ng/build/legacy/sdk
+```
+
+Alternatively, rebuild the standard build in place in legacy mode:
 
 ```bash
 VP_EXTRA_CFLAGS="-DVP_MV_POC_NORMALIZATION=1" util/build-ffmpeg.sh --clean && ./util/build-cmake.sh
 ```
 
-This enables POC-based motion vector normalization and other legacy behaviors. See [DEVELOPERS.md](DEVELOPERS.md#mv-poc-normalization) for details on what this flag changes.
+Legacy mode enables POC-based motion vector normalization and other legacy behaviors. See [DEVELOPERS.md](DEVELOPERS.md#mv-poc-normalization) for details on what this flag changes.
 
 > [!WARNING]
 > Legacy mode is only recommended for H.264 and HEVC compatibility testing. For VP9, the legacy parser had fundamental bugs making its output unreliable. See [VP9_Parsing.md](VP9_Parsing.md) for details.
@@ -345,6 +401,8 @@ util/build-cmake.sh
 
 This will create the library: `build/VideoParser/libvideoparser.a`
 
+To also install an SDK (static libraries and headers in `lib/` and `include/`, as in the release SDK archives), pass `--prefix <dir>`.
+
 You can also run the CLI:
 
 ```
@@ -365,7 +423,43 @@ Then run:
 util/build-ffmpeg.sh --reconfigure
 ```
 
-This will rebuild ffmpeg after which you can run the build script for the project again.
+Then run `util/build-cmake.sh` again.
+
+### Shared ffmpeg
+
+Other programs, such as video-analyzer, can use the patched ffmpeg as shared libraries. To build them with swscale and swresample into `build/ffmpeg-shared/install`, run:
+
+```bash
+util/build-ffmpeg.sh --shared
+```
+
+Add `--legacy` to build them in legacy mode into `build/ffmpeg-shared-legacy/install`.
+
+On Linux, the libraries find each other through an `$ORIGIN` runpath, so they can be shipped together in one directory. The patched decoders must run single-threaded, so set the thread count to 1 when opening a video.
+
+The shared build also contains:
+
+- libavfilter with only the filters `scale`, `format`, `fps`, `setpts`, `crop`, `pad`, `bwdif`, `yadif`, `psnr`, `ssim`, `libvmaf`, `aresample`, `aformat`, `split`, `null` and `anull`, plus those the `ffmpeg` program needs.
+- A static [libvmaf](https://github.com/Netflix/vmaf) (BSD-2-Clause-Patent) with its built-in models, including the VMAF v1.0.16 models. `util/build-libvmaf.sh` downloads the pinned release and builds it with meson into `build/libvmaf/install`; `util/build-ffmpeg.sh` calls it when needed. The models are embedded with `xxd`; without it, `util/xxd-fallback.sh` is used.
+- The `ffmpeg` and `ffprobe` programs in `bin/`, with the `null`, `rawvideo` and `yuv4mpegpipe` muxers, the `wrapped_avframe` and `rawvideo` encoders, and the `file` and `pipe` protocols. Their runpath is `$ORIGIN/../lib` (change it with `--exe-rpath`).
+
+All options stay LGPL. For example, to compute VMAF with a v1 model at 10-bit precision:
+
+```bash
+build/ffmpeg-shared/install/bin/ffmpeg -threads 1 -i distorted.mp4 -threads 1 -i reference.mp4 \
+  -lavfi "[0:v]format=yuv420p10le[d];[1:v]format=yuv420p10le[r];[d][r]libvmaf=model=version=vmaf_v1.0.16_3d0h" \
+  -an -f null -
+```
+
+Always pass `-threads 1` before each input. Otherwise ffmpeg decodes with several threads, and the patched decoders lose frames without an error or crash (for example for MPEG-2 and AV1). There are no audio encoders, so map only video outputs (or pass `-an`).
+
+To build libvideoparser as a shared library, and the CLI against it, run:
+
+```bash
+util/build-cmake.sh --shared --legacy
+```
+
+This builds in `build/shared-legacy` (or `build/shared` without `--legacy`) with the CMake option `VIDEOPARSER_SHARED=ON`, and installs an SDK with `lib/libvideoparser.so`, the shared ffmpeg libraries, the headers, and `bin/` with the CLI, `ffmpeg` and `ffprobe` to `build/shared-legacy/sdk`. The library finds the ffmpeg libraries in its own directory, and the CLI finds them in `../lib` (set `-DVIDEOPARSER_CLI_RPATH=<runpath>` after `--` to change it). Its output is identical to the static build.
 
 ### Building with Docker
 

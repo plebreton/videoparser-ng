@@ -9,6 +9,51 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/hooks/pre-commit" AND IS_DIRECTORY "${CMAKE_SOURC
     execute_process(COMMAND chmod +x "${CMAKE_SOURCE_DIR}/.git/hooks/pre-commit")
 endif()
 
+# Legacy mode: build against the ffmpeg built with VP_MV_POC_NORMALIZATION=1
+# by `util/build-ffmpeg.sh --legacy` instead of external/ffmpeg
+option(VIDEOPARSER_LEGACY "Build against the legacy-mode ffmpeg" OFF)
+
+# Shared mode: build libvideoparser as a shared library and link it and the
+# CLI against the shared ffmpeg from `util/build-ffmpeg.sh --shared` (with
+# --legacy if VIDEOPARSER_LEGACY is set)
+option(VIDEOPARSER_SHARED "Build a shared library against the shared ffmpeg" OFF)
+
+if(VIDEOPARSER_SHARED)
+    if(VIDEOPARSER_LEGACY)
+        set(FFMPEG_SHARED_DEFAULT_PREFIX "${CMAKE_SOURCE_DIR}/build/ffmpeg-shared-legacy/install")
+        set(FFMPEG_BUILD_ARGS --shared --legacy)
+    else()
+        set(FFMPEG_SHARED_DEFAULT_PREFIX "${CMAKE_SOURCE_DIR}/build/ffmpeg-shared/install")
+        set(FFMPEG_BUILD_ARGS --shared)
+    endif()
+    set(FFMPEG_SHARED_PREFIX "${FFMPEG_SHARED_DEFAULT_PREFIX}" CACHE PATH "Install directory of the shared ffmpeg")
+    list(APPEND FFMPEG_BUILD_ARGS --prefix "${FFMPEG_SHARED_PREFIX}")
+    set(FFMPEG_DIR "${FFMPEG_SHARED_PREFIX}/include")
+    set(FFMPEG_LIB_DIR "${FFMPEG_SHARED_PREFIX}/lib")
+elseif(VIDEOPARSER_LEGACY)
+    set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/build/ffmpeg-legacy/src")
+    set(FFMPEG_BUILD_ARGS --legacy)
+else()
+    set(FFMPEG_DIR "${CMAKE_SOURCE_DIR}/external/ffmpeg")
+    set(FFMPEG_BUILD_ARGS "")
+endif()
+
+# Version from VideoParser.h, for the pkg-config file
+file(STRINGS "${CMAKE_SOURCE_DIR}/VideoParser/VideoParser.h" VIDEOPARSER_VERSION_DEFINES
+  REGEX "^#define VIDEOPARSER_VERSION_(MAJOR|MINOR|PATCH) ")
+foreach(part MAJOR MINOR PATCH)
+  string(REGEX REPLACE ".*VIDEOPARSER_VERSION_${part} ([0-9]+).*" "\\1"
+    VIDEOPARSER_VERSION_${part} "${VIDEOPARSER_VERSION_DEFINES}")
+endforeach()
+set(VIDEOPARSER_VERSION
+  "${VIDEOPARSER_VERSION_MAJOR}.${VIDEOPARSER_VERSION_MINOR}.${VIDEOPARSER_VERSION_PATCH}")
+
+option(VIDEOPARSER_BUILD_C_API_TEST "Build the C API test program" ON)
+
 # Include the CMakeLists.txt for the subdirectories
 add_subdirectory(VideoParser)
 add_subdirectory(VideoParserCli)
+# The test is not part of the source copied into the Docker images
+if(VIDEOPARSER_BUILD_C_API_TEST AND EXISTS "${CMAKE_SOURCE_DIR}/test/c-api/CMakeLists.txt")
+  add_subdirectory(test/c-api)
+endif()

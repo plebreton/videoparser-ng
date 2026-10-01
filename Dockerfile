@@ -64,11 +64,6 @@ COPY --from=libaom-builder /build/libaom /build/libaom
 # Copy ffmpeg source
 COPY external/ffmpeg /build/ffmpeg
 
-# Copy VideoParser headers (required by our ffmpeg fork)
-# ffmpeg includes "../../../VideoParser/include/shared.h" from libavutil/frame.h
-# From /build/ffmpeg/libavutil/frame.h, that resolves to /VideoParser/include/shared.h
-COPY VideoParser /VideoParser
-
 WORKDIR /build/ffmpeg
 
 # Configure and build ffmpeg with vendored libaom
@@ -108,6 +103,7 @@ RUN ./configure \
     --enable-parser=hevc \
     --enable-parser=vp9 \
     --enable-parser=av1 \
+    --enable-parser=mpegvideo \
     --enable-parser=vorbis \
     --disable-decoder=tiff \
     --disable-demuxers \
@@ -118,6 +114,7 @@ RUN ./configure \
     --enable-demuxer=mov \
     --enable-demuxer=mpegvideo \
     --enable-demuxer=mpegts \
+    --enable-demuxer=mpegps \
     --enable-libaom \
     --extra-cflags="-I/build/libaom -I/build/libaom/aom_build ${VP_EXTRA_CFLAGS}" \
     '--extra-ldflags=-L/build/libaom/aom_build' \

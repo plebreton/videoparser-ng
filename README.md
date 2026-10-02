@@ -127,7 +127,7 @@ Or, for Docker, you must mount the video file into the container, e.g. to run it
 docker run --rm -it -v $(pwd)/test/test_video_h264.mkv:/video.mkv videoparser-ng /video.mkv
 ```
 
-Add the option `-h` for detailed usage.
+Add the option `-h` for detailed usage. To also export the QP, motion vectors and bits of every block, see [Per-Block Exports](#per-block-exports).
 
 ## Output
 
@@ -284,6 +284,73 @@ QP and motion vector values are in codec-native units:
 A detailed description of all available metrics is available in [METRICS.md](METRICS.md).
 
 For the implementation notes (i.e., what was modified to extract the metrics), see [DEVELOPERS.md](DEVELOPERS.md).
+
+## Per-Block Exports
+
+Besides the per-frame statistics, the parser can write the QP, the motion vectors and the bits of every block to binary files, for H.264, HEVC, VP9 and AV1:
+
+```bash
+build/VideoParserCli/video-parser test/test-libx265.mp4 \
+  --export-qp qp.bin --export-mv mv.bin --export-bits bits.bin > frames.ldjson
+```
+
+| Option          | File contents                                      |
+| --------------- | -------------------------------------------------- |
+| `--export-qp`   | QP of each block                                   |
+| `--export-mv`   | Motion vectors and reference of each block         |
+| `--export-bits` | Total, motion and coefficient bits of each block   |
+
+Each option can be used alone. The files contain one record per output frame, in the same order as the `frame_info` records (with `-n`, only the first n frames). Other codecs, such as MPEG-2, do not write the files.
+
+In the C++ API, set the paths in `OpenOptions` (`qp_export_path`, `mv_export_path`, `bits_export_path`). The patched FFmpeg decoders also accept them as the decoder options `export_qp_matrix`, `export_mv_matrix` and `export_ctu_bits_matrix`.
+
+### File Format
+
+All values are little endian. Each record is a header followed by `height × width` cells in raster order:
+
+| File | Header (`int32`)                       | Cell                                                                                       |
+| ---- | -------------------------------------- | ------------------------------------------------------------------------------------------ |
+| QP   | `id`, `width`, `height`                | `int16` QP                                                                                 |
+| MV   | `id`, `width`, `height`                | `int16 mv_l0_x, mv_l0_y, mv_l1_x, mv_l1_y`, `int8 ref_idx_l0, ref_idx_l1, pred_flag, reserved` (12 bytes) |
+| Bits | `id`, `width`, `height`, `block_size`  | `uint32 total_bits, motion_bits, coeff_bits` (12 bytes)                                    |
+
+`id` is the POC for HEVC, and the output frame number for the other codecs. `width` and `height` are in cells, and `block_size` is the size of a cell in pixels.
+
+`pred_flag` is a bit mask: 1 if the L0 motion vector is set, 2 if the L1 motion vector is set, 0 for intra blocks. Unset motion vectors are -32768, and unset reference indices are -1.
+
+### Grids and Values per Codec
+
+| Codec | QP grid                    | MV grid           | Bits grid            | Reference index                     |
+| ----- | -------------------------- | ----------------- | -------------------- | ----------------------------------- |
+| H.264 | macroblock (16×16)         | 4×4               | macroblock (16×16)   | index in the reference list         |
+| HEVC  | minimum coding block       | minimum PU (4×4)  | CTU                  | index in the reference list         |
+| VP9   | 8×8                        | 8×8               | 8×8                  | reference frame (0 = LAST, 1 = GOLDEN, 2 = ALTREF) |
+| AV1   | 4×4                        | 4×4               | 4×4                  | reference frame (1 = LAST … 7 = ALTREF) |
+
+The units of the QP and motion vector values are the same as in the frame statistics (see above). Further details:
+
+- QP: HEVC writes -1 for skipped coding units. VP9 and AV1 write the quantizer index of the block, with the segmentation (and for AV1, delta-q) applied, so it can differ from the frame-level `qp_min`/`qp_max`.
+- MV: VP9 blocks smaller than 8×8 show the motion vector of their top-left 4×4 sub-block.
+- Bits:
+  - `motion_bits` are the bits of the coded motion vector differences (HEVC: of the prediction units), and `coeff_bits` the bits of the residual (HEVC: of the transform units). `total_bits` are all bits of the block, including the mode, partition and other syntax elements, so `motion_bits + coeff_bits <= total_bits`.
+  - For HEVC and AV1, the sums of `motion_bits` and `coeff_bits` over a frame equal `motion_bit_count` and `coefs_bit_count` of the frame. For H.264 with CABAC, the sum of `motion_bits` equals `motion_bit_count`, and the sum of `coeff_bits` can be lower than `coefs_bit_count`, which also counts some bits of macroblocks without residual. The H.264 CAVLC and VP9 frame statistics are not comparable (they are 0 for CAVLC, and VP9 counts decoded symbols instead of bits).
+  - Up to a few bits per slice or tile (the entropy coder initialization and termination) are not counted in any block.
+  - VP9 and AV1 blocks can be larger than a cell: their bits are spread evenly over the cells they cover, so the sum over the cells is the bits of the block.
+  - Raw PCM samples count as `coeff_bits`.
+- Hidden frames (VP9/AV1) are written when they are shown with `show_existing_frame`, with their own data. The frame statistics of these frames may differ.
+
+### Visualizing
+
+[`util/visualize_exports.py`](util/visualize_exports.py) plots the files (it requires `numpy` and `matplotlib`):
+
+```bash
+python util/visualize_exports.py qp qp.bin --list-frames
+python util/visualize_exports.py qp qp.bin --frame 10 --save qp.png
+python util/visualize_exports.py mv mv.bin --frame 10 --list L0 --mode magnitude
+python util/visualize_exports.py ctu-bits bits.bin --frame 10 --field coeff
+```
+
+`--field` is `total`, `motion` or `coeff`, and `--mode` is `quiver`, `magnitude` or `pred-flag`. Without `--save`, the plot opens in a window.
 
 ## API Integration
 

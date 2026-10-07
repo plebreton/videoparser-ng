@@ -18,6 +18,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 extern "C" {
 #include "include/shared.h"
 #include <libavcodec/avcodec.h>
@@ -75,6 +76,35 @@ struct CustomInput {
   int buffer_size = 32768; /**< Size of the I/O buffer in bytes */
 };
 
+/** Size of a grid in cells, and the size of a cell in pixels */
+struct BlockGrid {
+  int width = 0, height = 0, cell_size = 0;
+};
+
+/** Motion vectors and references of a block (as in the MV export file) */
+struct BlockMV {
+  int16_t l0_x, l0_y, l1_x, l1_y;
+  int8_t ref_l0, ref_l1, pred_flag, reserved;
+};
+
+/** Bits used by a block (as in the bits export file) */
+struct BlockBits {
+  uint32_t total, motion, coeff;
+};
+static_assert(sizeof(BlockMV) == 12 && sizeof(BlockBits) == 12,
+              "same layout as the export files");
+
+/** Per-block grids of a frame, in raster order */
+struct FrameMaps {
+  BlockGrid qp_grid;
+  std::vector<int16_t> qp; // -1: skipped (HEVC)
+  BlockGrid mv_grid;
+  std::vector<BlockMV> mv; // codec units (H.264/HEVC 1/4 pel, VP9/AV1 1/8 pel)
+  BlockGrid bits_grid;
+  std::vector<BlockBits> bits;
+  bool empty() const { return qp.empty() && mv.empty() && bits.empty(); }
+};
+
 /**
  * @brief Options for opening an input
  */
@@ -90,14 +120,18 @@ struct OpenOptions {
    * FFmpeg fork does not patch, such as FFV1), with FrameInfo::has_statistics
    * false and the statistics at their defaults */
   bool frames_without_statistics = false;
-  /** Write per-block QP matrices to this binary file (H.264, HEVC, VP9) */
+  /** Write per-block QP matrices to this binary file (H.264, HEVC, VP9, AV1) */
   std::optional<std::string> qp_export_path;
   /** Write per-block motion-vector matrices to this binary file (H.264, HEVC,
-   * VP9) */
+   * VP9, AV1) */
   std::optional<std::string> mv_export_path;
   /** Write per-block bit usage matrices to this binary file (H.264, HEVC,
-   * VP9) */
+   * VP9, AV1) */
   std::optional<std::string> bits_export_path;
+  /** Return the per-block QP, motion vector and bits grids of each frame in
+   * FrameInfo::maps (H.264, HEVC, VP9, AV1), the same values as the export
+   * files */
+  bool block_maps = false;
 };
 
 class ScopeExit {
@@ -197,6 +231,8 @@ struct FrameInfo {
   uint32_t coefs_bit_count = 0;
   int mb_mv_count = 0;    /**< Number of macroblocks with MVs */
   int mv_coded_count = 0; /**< Number of coded MVs */
+  /** Per-block grids; empty unless OpenOptions::block_maps */
+  FrameMaps maps;
 
   // Adding these to make debugging easier (so that they can be printed in the
   // JSON)

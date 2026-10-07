@@ -14,6 +14,7 @@
 #include <sstream>
 
 extern "C" {
+#include "libavcodec/videoparser_export.h"
 #include <libavutil/cpu.h>
 }
 
@@ -295,6 +296,10 @@ void VideoParser::open() {
   if (options.bits_export_path) {
     av_dict_set(&opts, "export_ctu_bits_matrix",
                 options.bits_export_path->c_str(), 0);
+  }
+
+  if (options.block_maps) {
+    av_dict_set(&opts, "export_blocks", "1", 0);
   }
 
   int open_result = avcodec_open2(codec_context, codec, &opts);
@@ -764,6 +769,32 @@ void VideoParser::set_frame_info(FrameInfo &frame_info) {
     summary.decode_errors++;
   if (frame_info.discontinuity)
     summary.discontinuities++;
+
+  // per-block grids
+  frame_info.maps = FrameMaps();
+  if (options.block_maps) {
+    VPExportHeader *h = vp_export_get(frame);
+    if (h) {
+      // the cell size of a grid: the smallest power of two that covers the
+      // frame width with the grid width
+      auto cell = [&](int grid_w) {
+        int c = 1;
+        while (grid_w > 0 && c * grid_w < frame->width)
+          c *= 2;
+        return grid_w > 0 ? c : 0;
+      };
+      FrameMaps &m = frame_info.maps;
+      m.qp_grid = {h->qp_w, h->qp_h, cell(h->qp_w)};
+      m.mv_grid = {h->mv_w, h->mv_h, cell(h->mv_w)};
+      m.bits_grid = {h->bits_w, h->bits_h, h->bits_block_size};
+      const int16_t *qp = vp_export_qp(h);
+      m.qp.assign(qp, qp + size_t(h->qp_w) * h->qp_h);
+      const auto *mv = reinterpret_cast<const BlockMV *>(vp_export_mv(h));
+      m.mv.assign(mv, mv + size_t(h->mv_w) * h->mv_h);
+      const auto *bits = reinterpret_cast<const BlockBits *>(vp_export_bits(h));
+      m.bits.assign(bits, bits + size_t(h->bits_w) * h->bits_h);
+    }
+  }
 }
 
 Summary VideoParser::get_summary() const { return summary; }

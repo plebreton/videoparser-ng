@@ -52,3 +52,4 @@ test/**/__pycache__
 # Documentation
 doxygen.log
 Doxyfile.temp
+local-p1204/

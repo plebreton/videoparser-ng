@@ -308,6 +308,8 @@ Each option can be used alone. The files contain one record per output frame, in
 
 In the C++ API, set the paths in `OpenOptions` (`qp_export_path`, `mv_export_path`, `bits_export_path`). The patched FFmpeg decoders also accept them as the decoder options `export_qp_matrix`, `export_mv_matrix` and `export_ctu_bits_matrix`.
 
+To get the grids in memory instead of files, set `OpenOptions::block_maps`: each `FrameInfo` then has `maps`, with the QP, motion vector and bits grids of the frame (`qp_grid`, `mv_grid`, `bits_grid` give the grid size and the cell size in pixels). The values are the same as in the files.
+
 ### File Format
 
 All values are little endian. Each record is a header followed by `height × width` cells in raster order:

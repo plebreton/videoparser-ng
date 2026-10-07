@@ -772,8 +772,15 @@ void VideoParser::set_frame_info(FrameInfo &frame_info) {
   if (frame_info.discontinuity)
     summary.discontinuities++;
 
-  // per-block grids
-  frame_info.maps = FrameMaps();
+  // per-block grids (cleared, not reassigned, so that the buffers are reused
+  // when the caller passes the same FrameInfo for every frame)
+  {
+    FrameMaps &m = frame_info.maps;
+    m.qp_grid = m.mv_grid = m.bits_grid = BlockGrid();
+    m.qp.clear();
+    m.mv.clear();
+    m.bits.clear();
+  }
   if (options.block_maps) {
     VPExportHeader *h = vp_export_get(frame);
     if (h) {

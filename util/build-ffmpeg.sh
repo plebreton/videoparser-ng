@@ -41,6 +41,7 @@ usage() {
   echo "  --prefix <dir>      install directory for --shared (default: build/ffmpeg-shared/install)"
   echo "  --exe-rpath <dirs>  runpath of the programs for --shared: directories relative"
   echo "                      to the program, separated by ':' (default: ../lib)"
+  echo "  --disable-bzlib     build without bzip2 (default: use it if found)"
   echo "  --help              print this message"
   exit 1
 }
@@ -51,6 +52,7 @@ shared=false
 legacy=false
 prefix=""
 exeRpath="../lib"
+bzlib=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +75,9 @@ while [[ $# -gt 0 ]]; do
     --exe-rpath)
       shift
       exeRpath="$1"
+      ;;
+    --disable-bzlib)
+      bzlib=false
       ;;
     --help)
       usage
@@ -138,6 +143,11 @@ if [[ "$clean" = true ]]; then
     make clean
   fi
   rm -f config.h
+fi
+
+# a build with bzip2 must be reconfigured when it is no longer available
+if [[ "$bzlib" = false ]] && grep -q "^#define CONFIG_BZLIB 1" config.h 2>/dev/null; then
+  reconfigure=true
 fi
 
 if [[ ! -f config.h ]] || [[ "$reconfigure" = true ]]; then
@@ -230,7 +240,6 @@ if [[ ! -f config.h ]] || [[ "$reconfigure" = true ]]; then
       # lzma or hardware decoders)
       --disable-autodetect
       --enable-zlib
-      --enable-bzlib
       --enable-pthreads
       # programs, e.g. for VMAF: ffmpeg -i ref -i dist -lavfi libvmaf -f null -
       --enable-ffmpeg
@@ -294,6 +303,12 @@ if [[ ! -f config.h ]] || [[ "$reconfigure" = true ]]; then
       --disable-swscale
       --disable-swresample
     )
+  fi
+
+  if [[ "$bzlib" = false ]]; then
+    configureFlags+=(--disable-bzlib)
+  elif [[ "$shared" = true ]]; then
+    configureFlags+=(--enable-bzlib)
   fi
 
   ./configure "${configureFlags[@]}"

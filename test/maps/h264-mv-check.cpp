@@ -7,7 +7,6 @@ extern "C" {
 #include "libavcodec/videoparser_export.h"
 }
 #include <cstdio>
-#include <cstdlib>
 
 int main(int argc, char **argv) {
   AVFormatContext *fmt = nullptr;
@@ -24,7 +23,7 @@ int main(int argc, char **argv) {
   if (avcodec_open2(ctx, codec, &opts) < 0) return 2;
   AVPacket *pkt = av_packet_alloc();
   AVFrame *frame = av_frame_alloc();
-  long checked = 0, mismatches = 0;
+  long checked = 0, mismatches = 0, skipped = 0;
   auto check = [&]() {
     while (avcodec_receive_frame(ctx, frame) == 0) {
       const AVFrameSideData *mvs = av_frame_get_side_data(frame, AV_FRAME_DATA_MOTION_VECTORS);
@@ -39,9 +38,21 @@ int main(int argc, char **argv) {
           const VPExportMV *c = &vp_export_mv(e)[cy * e->mv_w + cx];
           int list = v[i].source > 0;
           int mx = list ? c->mv_l1_x : c->mv_l0_x, my = list ? c->mv_l1_y : c->mv_l0_y;
-          // FFmpeg exports every sub-block of a macroblock for each list used by
-          // any of them; a list unused by this sub-block reads as a zero vector
-          if (!(c->pred_flag & (1 << list)) && v[i].motion_x == 0 && v[i].motion_y == 0) continue;
+          // FFmpeg emits a vector for every sub-block of a macroblock for each
+          // list that any of its sub-blocks uses (the macroblock-level mb_type);
+          // a list unused by this sub-block reads as a zero vector. Skip only
+          // that case: the list is used by another cell of the same macroblock.
+          if (!(c->pred_flag & (1 << list))) {
+            bool used_elsewhere = false;
+            for (int yy = cy & ~3; yy < (cy & ~3) + 4 && !used_elsewhere; yy++)
+              for (int xx = cx & ~3; xx < (cx & ~3) + 4; xx++)
+                if (yy < e->mv_h && xx < e->mv_w &&
+                    (vp_export_mv(e)[yy * e->mv_w + xx].pred_flag & (1 << list))) {
+                  used_elsewhere = true;
+                  break;
+                }
+            if (used_elsewhere && v[i].motion_x == 0 && v[i].motion_y == 0) { skipped++; continue; }
+          }
           checked++;
           if (!(c->pred_flag & (1 << list)) || mx != v[i].motion_x || my != v[i].motion_y) {
             if (mismatches++ < 5)
@@ -60,6 +71,7 @@ int main(int argc, char **argv) {
   }
   avcodec_send_packet(ctx, nullptr);
   check();
-  std::printf("checked %ld motion vectors, %ld mismatches\n", checked, mismatches);
+  std::printf("checked %ld motion vectors, %ld mismatches, %ld skipped (list unused by the sub-block)\n",
+              checked, mismatches, skipped);
   return checked > 0 && mismatches == 0 ? 0 : 1;
 }

@@ -56,4 +56,5 @@ add_subdirectory(VideoParserCli)
 # The test is not part of the source copied into the Docker images
 if(VIDEOPARSER_BUILD_C_API_TEST AND EXISTS "${CMAKE_SOURCE_DIR}/test/c-api/CMakeLists.txt")
   add_subdirectory(test/c-api)
+  add_subdirectory(test/maps)
 endif()

@@ -51,6 +51,17 @@ int main(int argc, char **argv) {
            std::memcmp(m.bits.data(), bits[k].data.data(), bits[k].data.size()) == 0;
       if (!ok) std::printf("%s: frame %zu differs\n", argv[i], k);
     }
+    // A QP grid of zeros means the grids were not filled (for example on a
+    // copy of the export buffer): no test clip has a frame coded at QP 0
+    for (size_t k = 0; ok && k < maps.size(); k++) {
+      const auto &q = maps[k].qp;
+      bool zero = !q.empty();
+      for (int16_t v : q) zero = zero && v == 0;
+      if (zero) {
+        std::printf("%s: frame %zu has an all-zero QP grid\n", argv[i], k);
+        ok = false;
+      }
+    }
     std::printf("%s: %zu frames, %s\n", argv[i], maps.size(), ok ? "ok" : "FAIL");
     if (!maps.empty())
       std::printf("%s: cell sizes qp %d mv %d bits %d\n", argv[i], maps[0].qp_grid.cell_size,

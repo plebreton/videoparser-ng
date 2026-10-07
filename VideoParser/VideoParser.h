@@ -97,7 +97,7 @@ static_assert(sizeof(BlockMV) == 12 && sizeof(BlockBits) == 12,
 /** Per-block grids of a frame, in raster order */
 struct FrameMaps {
   BlockGrid qp_grid;
-  std::vector<int16_t> qp; // -1: skipped (HEVC)
+  std::vector<int16_t> qp; // INT16_MIN: skipped (HEVC)
   BlockGrid mv_grid;
   std::vector<BlockMV> mv; // codec units (H.264/HEVC 1/4 pel, VP9/AV1 1/8 pel)
   BlockGrid bits_grid;

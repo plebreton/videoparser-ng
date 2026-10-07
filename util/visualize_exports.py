@@ -273,7 +273,8 @@ def list_frames(frames, max_rows: int = 20):
 
 def visualize_qp(frame: QPFrame, out: str | None = None, title_prefix: str = "QP"):
     mat = frame.matrix.astype(float)
-    masked = np.ma.masked_where(mat < 0, mat)
+    # HEVC marks skipped coding units with INT16_MIN; negative QPs are valid
+    masked = np.ma.masked_where(mat == -32768, mat)
 
     plt.figure(figsize=(8, 6))
     im = plt.imshow(masked, interpolation="nearest", aspect="auto")

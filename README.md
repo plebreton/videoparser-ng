@@ -335,7 +335,7 @@ All values are little endian. Each record is a header followed by `height × wid
 
 The units of the QP and motion vector values are the same as in the frame statistics (see above). Further details:
 
-- QP: HEVC writes -1 for skipped coding units. VP9 and AV1 write the quantizer index of the block, with the segmentation (and for AV1, delta-q) applied, so it can differ from the frame-level `qp_min`/`qp_max`.
+- QP: HEVC writes -32768 (`INT16_MIN`) for skipped coding units; other values are real QPs, which can be negative at high bit depth (10-bit HEVC: -12 to 51). VP9 and AV1 write the quantizer index of the block, with the segmentation (and for AV1, delta-q) applied, so it can differ from the frame-level `qp_min`/`qp_max`.
 - MV: VP9 blocks smaller than 8×8 show the motion vector of their top-left 4×4 sub-block.
 - Bits:
   - `motion_bits` are the bits of the coded motion vector differences (HEVC: of the prediction units), and `coeff_bits` the bits of the residual (HEVC: of the transform units). `total_bits` are all bits of the block, including the mode, partition and other syntax elements, so `motion_bits + coeff_bits <= total_bits`.

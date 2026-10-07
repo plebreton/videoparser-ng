@@ -32,6 +32,8 @@ int main(int argc, char **argv) {
     std::vector<videoparser::FrameMaps> maps;
     {
       videoparser::VideoParser parser(argv[i], o);
+      auto seq = parser.get_sequence_info();
+      std::printf("container_bit_rate %lld\n", (long long)seq.container_bit_rate);
       videoparser::FrameInfo info;
       while (parser.parse_frame(info)) maps.push_back(info.maps);
     }

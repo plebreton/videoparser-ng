@@ -206,6 +206,8 @@ void VideoParser::open() {
 
   // Note: the below may be zero if not indicated in the file
   sequence_info.video_bitrate = codec_parameters->bit_rate / 1000;
+  sequence_info.container_bit_rate =
+      format_context->bit_rate > 0 ? format_context->bit_rate : 0;
   sequence_info.video_framerate =
       av_q2d(format_context->streams[video_stream_idx]->avg_frame_rate);
   sequence_info.video_width = codec_parameters->width;

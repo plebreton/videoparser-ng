@@ -146,9 +146,12 @@ public:
  * @brief General information about the video sequence.
  */
 struct SequenceInfo {
-  double video_duration = 0.0;    /**< Duration of the file in seconds */
-  char video_codec[8] = {};       /**< Codec used for video stream */
-  double video_bitrate = 0.0;     /**< Bitrate of the video stream in kbps */
+  double video_duration = 0.0; /**< Duration of the file in seconds */
+  char video_codec[8] = {};    /**< Codec used for video stream */
+  double video_bitrate = 0.0;  /**< Bitrate of the video stream in kbps */
+  /** Bit rate of the whole file (all streams) in bits per second, as FFmpeg
+   * reports it (AVFormatContext::bit_rate); 0 if unknown */
+  int64_t container_bit_rate = 0;
   double video_framerate = 0.0;   /**< Framerate of the video stream */
   int video_width = 0;            /**< Width of the video stream in pixels */
   int video_height = 0;           /**< Height of the video stream in pixels */
